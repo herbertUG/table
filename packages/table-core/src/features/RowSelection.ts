@@ -194,7 +194,35 @@ export interface RowSelectionInstance<TData extends RowData> {
   toggleAllRowsSelected: (value?: boolean) => void
 }
 
-//
+/**
+ * When child rows are updated, the parent state is not properly synced.
+ * Assumptions:
+ * When all children are selected, the parent should be selected.
+ * When only some children are selected, the parent should be indeterminate.
+ * When no children are selected, the parent should be unselected.
+ */
+function syncParentRowSelection<TData extends RowData>(
+  row: Row<TData>,
+  selection: RowSelectionState,
+  table: Table<TData>,
+): RowSelectionState {
+  const parentRow = row.getParentRow()
+  if (!parentRow) {
+    return selection
+  }
+
+  const selected = isRowSelected(parentRow, selection)
+  const isAllSubRowsSelected =
+    isSubRowSelected(parentRow, selection, table) === "all"
+
+  if (isAllSubRowsSelected && !selected) {
+    mutateRowIsSelected(selection, parentRow.id, true, false, table)
+  } else if (!isAllSubRowsSelected && selected) {
+    mutateRowIsSelected(selection, parentRow.id, false, false, table)
+  }
+
+  return syncParentRowSelection(parentRow, selection, table)
+}
 
 export const RowSelection: TableFeature = {
   getInitialState: (state): RowSelectionTableState => {
@@ -472,25 +500,25 @@ export const RowSelection: TableFeature = {
   ): void => {
     row.toggleSelected = (value, opts) => {
       const isSelected = row.getIsSelected()
-
-      table.setRowSelection(old => {
-        value = typeof value !== 'undefined' ? value : !isSelected
-
+    
+      table.setRowSelection((old) => {
+        value = typeof value !== "undefined" ? value : !isSelected
+    
         if (row.getCanSelect() && isSelected === value) {
           return old
         }
-
-        const selectedRowIds = { ...old }
-
+    
+        const selectedRowIds = {...old}
+    
         mutateRowIsSelected(
           selectedRowIds,
           row.id,
           value,
           opts?.selectChildren ?? true,
-          table
+          table,
         )
-
-        return selectedRowIds
+        // could also be enabled through a new config option.
+        return syncParentRowSelection(row, selectedRowIds, table)
       })
     }
     row.getIsSelected = () => {
